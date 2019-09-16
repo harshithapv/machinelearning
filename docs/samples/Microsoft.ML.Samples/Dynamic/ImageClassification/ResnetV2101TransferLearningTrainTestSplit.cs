@@ -11,6 +11,8 @@ using Microsoft.ML.Data;
 using System.IO.Compression;
 using System.Threading;
 using System.Net;
+using Microsoft.ML.Transforms.Image;
+using System.Drawing;
 
 namespace Samples.Dynamic
 {
@@ -33,7 +35,7 @@ namespace Samples.Dynamic
 
             string fullImagesetFolderPath = Path.Combine(
                 imagesDownloadFolderPath, finalImagesFolderName);
-
+            
             try
             {
 
@@ -42,7 +44,7 @@ namespace Samples.Dynamic
                 //Load all the original images info
                 IEnumerable<ImageData> images = LoadImagesFromDirectory(
                     folder: fullImagesetFolderPath, useFolderNameasLabel: true);
-
+                
                 IDataView shuffledFullImagesDataset = mlContext.Data.ShuffleRows(
                     mlContext.Data.LoadFromEnumerable(images));
 
@@ -57,7 +59,7 @@ namespace Samples.Dynamic
 
                 IDataView trainDataset = trainTestData.TrainSet;
                 IDataView testDataset = trainTestData.TestSet;
-
+                /*
                 var pipeline = mlContext.Model.ImageClassification(
                     "ImagePath", "Label",
                     // Just by changing/selecting InceptionV3 here instead of 
@@ -108,14 +110,16 @@ namespace Samples.Dynamic
 
                 Console.WriteLine("Prediction engine took: " +
                     (elapsedMs / 1000).ToString() + " seconds");
+                    */
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
             }
-
+            
             Console.WriteLine("Press any key to finish");
             Console.ReadKey();
+            
         }
 
         private static void TrySinglePrediction(string imagesForPredictions,
@@ -201,6 +205,7 @@ namespace Samples.Dynamic
             }
         }
 
+       
         public static string DownloadImageSet(string imagesDownloadFolder)
         {
             // get a set of images to teach the network about the new classes
@@ -285,15 +290,17 @@ namespace Samples.Dynamic
             return fullPath;
         }
 
+       
         public class ImageData
         {
             [LoadColumn(0)]
             public string ImagePath;
-
+            
             [LoadColumn(1)]
             public string Label;
         }
-
+              
+       
         public class ImagePrediction
         {
             [ColumnName("Score")]

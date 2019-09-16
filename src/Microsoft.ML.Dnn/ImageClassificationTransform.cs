@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -152,16 +153,29 @@ namespace Microsoft.ML.Transforms
             CheckTrainingParameters(options);
             var imageProcessor = new ImageProcessor(this);
             if (!options.ReuseTrainSetBottleneckCachedValues || !File.Exists(options.TrainSetBottleneckCachedValuesFilePath))
+            {
+                /*
                 CacheFeaturizedImagesToDisk(input, options.LabelColumn, options.InputColumns[0], imageProcessor,
                     _inputTensorName, _bottleneckTensor.name, options.TrainSetBottleneckCachedValuesFilePath,
                     ImageClassificationMetrics.Dataset.Train, options.MetricsCallback);
-
+                */
+                CacheFeaturizedImagesToDiskBmp(input, options.LabelColumn, options.InputColumns[0], imageProcessor,
+                    _inputTensorName, _bottleneckTensor.name, options.TrainSetBottleneckCachedValuesFilePath,
+                    ImageClassificationMetrics.Dataset.Train, options.MetricsCallback);
+            }
             if (options.ValidationSet != null &&
                     (!options.ReuseTrainSetBottleneckCachedValues || !File.Exists(options.ValidationSetBottleneckCachedValuesFilePath)))
+            {
+
+                /*
                 CacheFeaturizedImagesToDisk(options.ValidationSet, options.LabelColumn, options.InputColumns[0],
                     imageProcessor, _inputTensorName, _bottleneckTensor.name, options.ValidationSetBottleneckCachedValuesFilePath,
                     ImageClassificationMetrics.Dataset.Validation, options.MetricsCallback);
-
+                */
+                CacheFeaturizedImagesToDiskBmp(options.ValidationSet, options.LabelColumn, options.InputColumns[0],
+                    imageProcessor, _inputTensorName, _bottleneckTensor.name, options.ValidationSetBottleneckCachedValuesFilePath,
+                    ImageClassificationMetrics.Dataset.Validation, options.MetricsCallback);
+            }
             TrainAndEvaluateClassificationLayer(options.TrainSetBottleneckCachedValuesFilePath, options, options.ValidationSetBottleneckCachedValuesFilePath);
         }
 
@@ -188,7 +202,31 @@ namespace Microsoft.ML.Transforms
             var resizedImage = tf.image.resize_bilinear(decodedImage4d, resizeShapeAsInt, false, "ResizeTensor");
             return (jpegData, resizedImage);
         }
-
+        
+        private (Tensor, Tensor) AddBitMapDecoding(int height, int width, int depth)
+        {
+            // height, width, depth
+            var inputDim = (height, width, depth);
+           
+            var bmpData = tf.placeholder(TF_DataType.TF_UINT8, name: "DecodeBMPInput");
+            var decodedImage = bmpData;//tf.reshape(bmpData, new int[] { 299, 299, 3 });
+           // var decodedImage = tf.image.decode_jpeg(bmpData, channels: inputDim.Item3); //bmpData;//tf.image.decode_bmp(bmpData, channels: inputDim.Item3);
+            /*
+            int[] imgSz = new int[height * width * depth];
+            var imgHandle = GCHandle.Alloc(imgSz, GCHandleType.Pinned);
+            IntPtr imgPtr = imgHandle.AddrOfPinnedObject();
+            int imgSizeInBytes = sizeof(int) * imgSz.Length;
+            var decodedImage = new Tensor(imgPtr, new long[] { -1,-1, 3 }, TF_DataType.TF_UINT8, imgSizeInBytes);
+            */
+            // Convert from full range of uint8 to range [0,1] of float32.
+            var decodedImageAsFloat = tf.image.convert_image_dtype(decodedImage, tf.float32);
+            var decodedImage4d = tf.expand_dims(decodedImageAsFloat, 0);
+            var resizeShape = tf.stack(new int[] { inputDim.Item1, inputDim.Item2 });
+            var resizeShapeAsInt = tf.cast(resizeShape, dtype: tf.int32);
+            var resizedImage = tf.image.resize_bilinear(decodedImage4d, resizeShapeAsInt, false, "ResizeTensor");
+            return (bmpData, resizedImage);
+        }
+        
         private sealed class ImageProcessor
         {
             private Runner _imagePreprocessingRunner;
@@ -199,7 +237,7 @@ namespace Microsoft.ML.Transforms
                 _imagePreprocessingRunner.AddInput(transformer._jpegDataTensorName);
                 _imagePreprocessingRunner.AddOutputs(transformer._resizedImageTensorName);
             }
-
+                       
             public Tensor ProcessImage(string path)
             {
                 var imageTensor = new Tensor(File.ReadAllBytes(path), TF_DataType.TF_STRING);
@@ -207,6 +245,50 @@ namespace Microsoft.ML.Transforms
                 imageTensor.Dispose();
                 return processedTensor;
             }
+
+            public static byte[] ImageToByte(Bitmap img)
+            {
+                using (var stream = new MemoryStream())
+                {
+                    img.Save(stream, img.RawFormat);
+                    return stream.ToArray();
+                }
+            }
+            private byte[] GetRGBValues(Bitmap bmp)
+            {
+
+                // Lock the bitmap's bits 
+                Rectangle rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+                System.Drawing.Imaging.BitmapData bmpData =
+                 bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                 bmp.PixelFormat);
+
+                // Get the address of the first line.
+                IntPtr ptr = bmpData.Scan0;
+
+                // Declare an array to hold the bytes of the bitmap.
+                int bytes = bmpData.Stride * bmp.Height;
+                byte[] rgbValues = new byte[bytes];
+
+                // Copy the RGB values into the array.
+                System.Runtime.InteropServices.Marshal.Copy(ptr, rgbValues, 0, bytes);
+                bmp.UnlockBits(bmpData);
+
+                return rgbValues;
+            }
+
+            public Tensor ProcessImageBmp(Bitmap imgObj)
+            {
+                byte[] byteImage = GetRGBValues(imgObj);
+                var imgHandle = GCHandle.Alloc(byteImage, GCHandleType.Pinned);
+                IntPtr imgPtr = imgHandle.AddrOfPinnedObject();
+                //var byteImage = Transforms.ExtractPixels();
+                var imageTensor = new Tensor(imgPtr, new long[] { imgObj.Height, imgObj.Width, 3 }, TF_DataType.TF_UINT8, sizeof(byte) * byteImage.Length);
+                var processedTensor = _imagePreprocessingRunner.AddInput(imageTensor, 0).Run()[0];
+                imageTensor.Dispose();
+                return processedTensor;
+            }
+            
         }
 
         private void CacheFeaturizedImagesToDisk(IDataView input, string labelColumnName, string imagepathColumnName,
@@ -252,6 +334,67 @@ namespace Microsoft.ML.Transforms
                 }
             }
         }
+
+
+        private void CacheFeaturizedImagesToDiskBmp(IDataView input, string labelColumnName, string imageObjColumnName,
+            ImageProcessor imageProcessor, string inputTensorName, string outputTensorName, string cacheFilePath,
+            ImageClassificationMetrics.Dataset dataset, ImageClassificationMetricsCallback metricsCallback)
+        {
+            var labelColumn = input.Schema[labelColumnName];
+
+            if (labelColumn.Type.RawType != typeof(UInt32))
+                throw Host.ExceptSchemaMismatch(nameof(labelColumn), "Label",
+                    labelColumnName, typeof(uint).ToString(),
+                    labelColumn.Type.RawType.ToString());
+
+            var imageObjColumn = input.Schema[imageObjColumnName];
+
+            var imagePathColumn = input.Schema["ImagePath"];
+            
+            Runner runner = new Runner(_session);
+            runner.AddOutputs(outputTensorName);
+
+            using (TextWriter writer = File.CreateText(cacheFilePath))
+            //using (TextWriter writer2 = File.CreateText("C:\\Users\\havenka\\Desktop\\GitHub\\machinelearning\\bin\\AnyCPU.Debug\\Microsoft.ML.Samples\\netcoreapp2.1\\TrainImages.csv"))
+            using (var cursor = input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageObjColumn.Index || c.Index == imagePathColumn.Index)))
+            {
+                var labelGetter = cursor.GetGetter<uint>(labelColumn);
+                var imageObjGetter = cursor.GetGetter<Bitmap>(imageObjColumn);
+
+                var imagePathGetter = cursor.GetGetter<ReadOnlyMemory<char>>(imagePathColumn);
+                ReadOnlyMemory<char> imagePath = default;
+
+                UInt32 label = UInt32.MaxValue;
+                Bitmap imageObj = default;
+                runner.AddInput(inputTensorName);
+                ImageClassificationMetrics metrics = new ImageClassificationMetrics();
+                metrics.Bottleneck = new BottleneckMetrics();
+                metrics.Bottleneck.DatasetUsed = dataset;
+                while (cursor.MoveNext())
+                {
+                    labelGetter(ref label);
+                    imageObjGetter(ref imageObj);
+
+                    imagePathGetter(ref imagePath);
+                    var imagePathStr = imagePath.ToString();
+
+                    var imageTensor = imageProcessor.ProcessImageBmp(imageObj);
+                    runner.AddInput(imageTensor, 0);
+                    var featurizedImage = runner.Run()[0]; // Reuse memory
+                    writer.WriteLine(label - 1 + "," + string.Join(",", featurizedImage.Data<float>()));
+                    //Console.WriteLine("Path :" + imagePathStr);
+                    //writer2.WriteLine(Path.GetFileName(imagePathStr) + "," + string.Join(",", imageTensor.Data<float>()));
+
+                    featurizedImage.Dispose();
+                    imageTensor.Dispose();
+
+                    metrics.Bottleneck.Index++;
+                    metrics.Bottleneck.Name = imagePathStr;
+                    metricsCallback?.Invoke(metrics);
+                }
+            }
+        }
+        
 
         private IDataView GetShuffledData(string path)
         {
@@ -309,7 +452,7 @@ namespace Microsoft.ML.Transforms
             var testEvalRunner = new Runner(_session);
             testEvalRunner.AddOutputs(_evaluationStep.name);
             testEvalRunner.AddOutputs(_crossEntropy.name);
-
+           
             Runner validationEvalRunner = null;
             if (validationSet != null)
             {
@@ -365,7 +508,7 @@ namespace Microsoft.ML.Transforms
                         // Train.
                         if (batchIndex == batchSize)
                         {
-                            runner.AddInput(new Tensor(featureBatchPtr, featureTensorShape, TF_DataType.TF_FLOAT, featureBatchSizeInBytes), 0)
+                            var outputImageTensor = runner.AddInput(new Tensor(featureBatchPtr, featureTensorShape, TF_DataType.TF_FLOAT, featureBatchSizeInBytes), 0)
                                 .AddInput(new Tensor(labelBatchPtr, labelTensorShape, TF_DataType.TF_INT64, labelBatchSizeInBytes), 1)
                                 .Run();
 
@@ -466,7 +609,7 @@ namespace Microsoft.ML.Transforms
 
                 tf.train.Saver().restore(evalSess, _checkpointPath);
                 (evaluationStep, prediction) = AddEvaluationStep(finalTensor, groundTruthInput);
-                (_jpegData, _resizedImage) = AddJpegDecoding(299, 299, 3);
+                (_jpegData, _resizedImage) = AddBitMapDecoding(299, 299, 3);
             });
 
             return (evalSess, _labelTensor, evaluationStep, prediction);
@@ -706,7 +849,7 @@ namespace Microsoft.ML.Transforms
 
             if (loadModel == false)
             {
-                (_jpegData, _resizedImage) = AddJpegDecoding(299, 299, 3);
+                (_jpegData, _resizedImage) = AddBitMapDecoding(299, 299, 3);
                 _jpegDataTensorName = _jpegData.name;
                 _resizedImageTensorName = _resizedImage.name;
 
@@ -799,8 +942,8 @@ namespace Microsoft.ML.Transforms
             private class OutputCache
             {
                 public long Position;
-                private ValueGetter<ReadOnlyMemory<char>> _imagePathGetter;
-                private ReadOnlyMemory<char> _imagePath;
+                private ValueGetter<Bitmap> _imageObjGetter;
+                private Bitmap _imageObj;
                 private Runner _runner;
                 private ImageProcessor _imageProcessor;
                 public UInt32 PredictedLabel { get; set; }
@@ -809,8 +952,8 @@ namespace Microsoft.ML.Transforms
 
                 public OutputCache(DataViewRow input, ImageClassificationTransformer transformer)
                 {
-                    _imagePath = default;
-                    _imagePathGetter = input.GetGetter<ReadOnlyMemory<char>>(input.Schema[transformer._inputs[0]]);
+                    _imageObj = default;
+                    _imageObjGetter = input.GetGetter<Bitmap>(input.Schema[transformer._inputs[0]]);
                     _runner = new Runner(transformer._session);
                     _runner.AddInput(transformer._inputTensorName);
                     _runner.AddOutputs(transformer._softmaxTensorName);
@@ -827,8 +970,8 @@ namespace Microsoft.ML.Transforms
                         if (_inputRow.Position != Position)
                         {
                             Position = _inputRow.Position;
-                            _imagePathGetter(ref _imagePath);
-                            var processedTensor = _imageProcessor.ProcessImage(_imagePath.ToString());
+                            _imageObjGetter(ref _imageObj);
+                            var processedTensor = _imageProcessor.ProcessImageBmp(_imageObj);
                             var outputTensor = _runner.AddInput(processedTensor, 0).Run();
                             ClassProbabilities = outputTensor[0].Data<float>();
                             PredictedLabel = (UInt32)outputTensor[1].Data<long>()[0];
@@ -1156,7 +1299,7 @@ namespace Microsoft.ML.Transforms
         private readonly IHost _host;
         private readonly Options _options;
         private readonly DnnModel _dnnModel;
-        private readonly TF_DataType[] _tfInputTypes;
+        //private readonly DataViewType[] _tfInputTypes;
         private readonly DataViewType[] _outputTypes;
         private ImageClassificationTransformer _transformer;
 
@@ -1165,7 +1308,7 @@ namespace Microsoft.ML.Transforms
             _host = Contracts.CheckRef(env, nameof(env)).Register(nameof(ImageClassificationEstimator));
             _options = options;
             _dnnModel = dnnModel;
-            _tfInputTypes = new[] { TF_DataType.TF_STRING };
+            //_tfInputTypes = new[] { Image };
             _outputTypes = new[] { new VectorDataViewType(NumberDataViewType.Single), NumberDataViewType.UInt32.GetItemType() };
         }
 
@@ -1192,9 +1335,9 @@ namespace Microsoft.ML.Transforms
                 var input = _options.InputColumns[i];
                 if (!inputSchema.TryFindColumn(input, out var col))
                     throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", input);
-                var expectedType = DnnUtils.Tf2MlNetType(_tfInputTypes[i]);
-                if (col.ItemType != expectedType)
-                    throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", input, expectedType.ToString(), col.ItemType.ToString());
+                //var expectedType = DnnUtils.Tf2MlNetType(_tfInputTypes[i]);
+                //if (col.ItemType != expectedType)
+                //    throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", input, expectedType.ToString(), col.ItemType.ToString());
             }
             for (var i = 0; i < _options.OutputColumns.Length; i++)
             {
