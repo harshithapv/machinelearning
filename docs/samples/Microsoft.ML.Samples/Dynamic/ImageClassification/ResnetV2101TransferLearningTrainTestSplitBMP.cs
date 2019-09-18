@@ -30,10 +30,11 @@ namespace Samples.Dynamic
                 "images");
 
             //Download the image set and unzip
-            string finalImagesFolderName = "flower_photos";
-                //DownloadImageSet(
-                //imagesDownloadFolderPath);
-
+            string finalImagesFolderName = "micro-imagenet";
+            /*
+            string finalImagesFolderName = DownloadImageSet(
+                imagesDownloadFolderPath);
+            */
             string fullImagesetFolderPath = Path.Combine(
                 imagesDownloadFolderPath, finalImagesFolderName);
 
@@ -73,7 +74,7 @@ namespace Samples.Dynamic
                     // ResnetV2101 you can try a different architecture/pre-trained 
                     // model. 
                     arch: ImageClassificationEstimator.Architecture.ResnetV2101,
-                    epoch: 100,
+                    epoch: 50,
                     batchSize: 10,
                     learningRate: 0.01f,
                     metricsCallback: (metrics) => Console.WriteLine(metrics),
@@ -184,7 +185,7 @@ namespace Samples.Dynamic
 
             foreach (var file in files)
             {
-                if (Path.GetExtension(file) != ".jpg")
+                if (Path.GetExtension(file) != ".JPEG")
                     continue;
 
                 var label = Path.GetFileName(file);
@@ -260,17 +261,17 @@ namespace Samples.Dynamic
             // get a set of images to teach the network about the new classes
 
             //SINGLE SMALL FLOWERS IMAGESET (200 files)
-            /*
+            
             string fileName = "flower_photos_small_set.zip";
             
             string url = $"https://mlnetfilestorage.file.core.windows.net/" +
                 $"imagesets/flower_images/flower_photos_small_set.zip?st=2019-08-" +
                 $"07T21%3A27%3A44Z&se=2030-08-08T21%3A27%3A00Z&sp=rl&sv=2018-03-" +
                 $"28&sr=f&sig=SZ0UBX47pXD0F1rmrOM%2BfcwbPVob8hlgFtIlN89micM%3D";
-            */
-            string fileName = "flower_photos.tgz";
+            
+            //string fileName = "flower_photos.tgz";
 
-            string url = $"http://download.tensorflow.org/example_images/flower_photos.tgz";
+            //string url = $"http://download.tensorflow.org/example_images/flower_photos.tgz";
 
             Download(url, imagesDownloadFolder, fileName);
             UnZip(Path.Combine(imagesDownloadFolder, fileName), imagesDownloadFolder);

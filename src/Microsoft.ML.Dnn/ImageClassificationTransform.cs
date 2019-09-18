@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -202,12 +203,12 @@ namespace Microsoft.ML.Transforms
             var resizedImage = tf.image.resize_bilinear(decodedImage4d, resizeShapeAsInt, false, "ResizeTensor");
             return (jpegData, resizedImage);
         }
-        
+
         private (Tensor, Tensor) AddBitMapDecoding(int height, int width, int depth)
         {
             // height, width, depth
             var inputDim = (height, width, depth);
-           
+
             var bmpData = tf.placeholder(TF_DataType.TF_UINT8, name: "DecodeBMPInput");
             var decodedImage = bmpData;//tf.reshape(bmpData, new int[] { 299, 299, 3 });
            // var decodedImage = tf.image.decode_jpeg(bmpData, channels: inputDim.Item3); //bmpData;//tf.image.decode_bmp(bmpData, channels: inputDim.Item3);
@@ -226,7 +227,7 @@ namespace Microsoft.ML.Transforms
             var resizedImage = tf.image.resize_bilinear(decodedImage4d, resizeShapeAsInt, false, "ResizeTensor");
             return (bmpData, resizedImage);
         }
-        
+
         private sealed class ImageProcessor
         {
             private Runner _imagePreprocessingRunner;
@@ -237,7 +238,7 @@ namespace Microsoft.ML.Transforms
                 _imagePreprocessingRunner.AddInput(transformer._jpegDataTensorName);
                 _imagePreprocessingRunner.AddOutputs(transformer._resizedImageTensorName);
             }
-                       
+
             public Tensor ProcessImage(string path)
             {
                 var imageTensor = new Tensor(File.ReadAllBytes(path), TF_DataType.TF_STRING);
@@ -254,7 +255,7 @@ namespace Microsoft.ML.Transforms
                     return stream.ToArray();
                 }
             }
-            private byte[] GetRGBValues(Bitmap bmp)
+            private byte[] GetRgbValues(Bitmap bmp)
             {
 
                 // Lock the bitmap's bits 
@@ -279,16 +280,21 @@ namespace Microsoft.ML.Transforms
 
             public Tensor ProcessImageBmp(Bitmap imgObj)
             {
-                byte[] byteImage = GetRGBValues(imgObj);
+                byte[] byteImage = GetRgbValues(imgObj);
                 var imgHandle = GCHandle.Alloc(byteImage, GCHandleType.Pinned);
                 IntPtr imgPtr = imgHandle.AddrOfPinnedObject();
                 //var byteImage = Transforms.ExtractPixels();
-                var imageTensor = new Tensor(imgPtr, new long[] { imgObj.Height, imgObj.Width, 3 }, TF_DataType.TF_UINT8, sizeof(byte) * byteImage.Length);
+                int channels = 3; 
+                if(byteImage.Length == imgObj.Height * imgObj.Width)
+                {
+                    channels = 1;
+                }
+                var imageTensor = new Tensor(imgPtr, new long[] { imgObj.Height, imgObj.Width, channels }, TF_DataType.TF_UINT8, sizeof(byte) * byteImage.Length);
                 var processedTensor = _imagePreprocessingRunner.AddInput(imageTensor, 0).Run()[0];
                 imageTensor.Dispose();
                 return processedTensor;
             }
-            
+
         }
 
         private void CacheFeaturizedImagesToDisk(IDataView input, string labelColumnName, string imagepathColumnName,
@@ -350,7 +356,6 @@ namespace Microsoft.ML.Transforms
             var imageObjColumn = input.Schema[imageObjColumnName];
 
             var imagePathColumn = input.Schema["ImagePath"];
-            
             Runner runner = new Runner(_session);
             runner.AddOutputs(outputTensorName);
 
@@ -379,22 +384,23 @@ namespace Microsoft.ML.Transforms
                     var imagePathStr = imagePath.ToString();
 
                     var imageTensor = imageProcessor.ProcessImageBmp(imageObj);
-                    runner.AddInput(imageTensor, 0);
-                    var featurizedImage = runner.Run()[0]; // Reuse memory
-                    writer.WriteLine(label - 1 + "," + string.Join(",", featurizedImage.Data<float>()));
-                    //Console.WriteLine("Path :" + imagePathStr);
-                    //writer2.WriteLine(Path.GetFileName(imagePathStr) + "," + string.Join(",", imageTensor.Data<float>()));
+                    if (imageTensor != null)
+                    {
+                        runner.AddInput(imageTensor, 0);
+                        var featurizedImage = runner.Run()[0]; // Reuse memory
+                        writer.WriteLine(label - 1 + "," + string.Join(",", featurizedImage.Data<float>()));
+                        //Console.WriteLine("Path :" + imagePathStr);
+                        //writer2.WriteLine(Path.GetFileName(imagePathStr) + "," + string.Join(",", imageTensor.Data<float>()));
 
-                    featurizedImage.Dispose();
-                    imageTensor.Dispose();
-
+                        featurizedImage.Dispose();
+                        imageTensor.Dispose();
+                    }
                     metrics.Bottleneck.Index++;
                     metrics.Bottleneck.Name = imagePathStr;
                     metricsCallback?.Invoke(metrics);
                 }
             }
         }
-        
 
         private IDataView GetShuffledData(string path)
         {
