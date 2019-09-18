@@ -30,11 +30,11 @@ namespace Samples.Dynamic
                 "images");
 
             //Download the image set and unzip
-            string finalImagesFolderName = "micro-imagenet";
-            /*
+            //string finalImagesFolderName = "micro-imagenet";
+            
             string finalImagesFolderName = DownloadImageSet(
                 imagesDownloadFolderPath);
-            */
+            
             string fullImagesetFolderPath = Path.Combine(
                 imagesDownloadFolderPath, finalImagesFolderName);
 
@@ -65,11 +65,10 @@ namespace Samples.Dynamic
                 IDataView trainDataset = trainTestData.TrainSet;
                 IDataView testDataset = trainTestData.TestSet;
 
-                var testDatasetWithImgObj = mlContext.Transforms.LoadImages("ImageObject", fullImagesetFolderPath, "ImagePath").Fit(testDataset).Transform(testDataset);
+                //var testDatasetWithImgObj = mlContext.Transforms.LoadImages("ImageObject", fullImagesetFolderPath, "ImagePath").Fit(testDataset).Transform(testDataset);
 
-                var pipeline = mlContext.Transforms.LoadImages("ImageObject", fullImagesetFolderPath, "ImagePath")
-                    .Append(mlContext.Model.ImageClassification(
-                    "ImageObject", "Label",
+                var pipeline = mlContext.Model.ImageClassification(
+                    "ImageVBuf", "Label",
                     // Just by changing/selecting InceptionV3 here instead of 
                     // ResnetV2101 you can try a different architecture/pre-trained 
                     // model. 
@@ -78,7 +77,7 @@ namespace Samples.Dynamic
                     batchSize: 10,
                     learningRate: 0.01f,
                     metricsCallback: (metrics) => Console.WriteLine(metrics),
-                    validationSet: testDatasetWithImgObj));
+                    validationSet: testDataset);
 
 
                 Console.WriteLine("*** Training the image classification model with " +
@@ -108,7 +107,7 @@ namespace Samples.Dynamic
                 */
                 EvaluateModel(mlContext, testDataset, trainedModel);
                 VBuffer<ReadOnlyMemory<char>> keys = default;
-                trainedModel.GetOutputSchema(testDatasetWithImgObj.Schema)["Label"].GetKeyValues(ref keys);
+                trainedModel.GetOutputSchema(testDataset.Schema)["Label"].GetKeyValues(ref keys);
 
                 watch = System.Diagnostics.Stopwatch.StartNew();
                 TrySinglePrediction(fullImagesetFolderPath, mlContext, trainedModel,
@@ -185,7 +184,7 @@ namespace Samples.Dynamic
 
             foreach (var file in files)
             {
-                if (Path.GetExtension(file) != ".JPEG")
+                if (Path.GetExtension(file) != ".JPEG" && Path.GetExtension(file) != ".jpg")
                     continue;
 
                 var label = Path.GetFileName(file);
@@ -203,10 +202,15 @@ namespace Samples.Dynamic
                     }
                 }
 
+                // Get the buffer of bytes
+                byte[] imgBytes = File.ReadAllBytes(Path.Combine(folder, file));
+                VBuffer<Byte> imgData = new VBuffer<byte>(imgBytes.Length,imgBytes);                
+
                 yield return new ImageData()
                 {
                     ImagePath = file,
-                    Label = label
+                    Label = label,
+                    ImageVBuf = imgData
                 };
 
             }
@@ -354,6 +358,9 @@ namespace Samples.Dynamic
 
             [LoadColumn(1)]
             public string Label;
+
+            //[LoadColumn(2)]
+            public VBuffer<byte> ImageVBuf;
 
         }
 

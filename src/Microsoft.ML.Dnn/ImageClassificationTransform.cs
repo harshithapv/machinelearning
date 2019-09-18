@@ -209,9 +209,9 @@ namespace Microsoft.ML.Transforms
             // height, width, depth
             var inputDim = (height, width, depth);
 
-            var bmpData = tf.placeholder(TF_DataType.TF_UINT8, name: "DecodeBMPInput");
-            var decodedImage = bmpData;//tf.reshape(bmpData, new int[] { 299, 299, 3 });
-           // var decodedImage = tf.image.decode_jpeg(bmpData, channels: inputDim.Item3); //bmpData;//tf.image.decode_bmp(bmpData, channels: inputDim.Item3);
+            var bmpData = tf.placeholder(tf.@string, name: "DecodeBMPInput");
+            var decodedImage = tf.image.decode_jpeg(bmpData, channels: inputDim.Item3);
+            // var decodedImage = tf.image.decode_jpeg(bmpData, channels: inputDim.Item3); //bmpData;//tf.image.decode_bmp(bmpData, channels: inputDim.Item3);
             /*
             int[] imgSz = new int[height * width * depth];
             var imgHandle = GCHandle.Alloc(imgSz, GCHandleType.Pinned);
@@ -278,18 +278,9 @@ namespace Microsoft.ML.Transforms
                 return rgbValues;
             }
 
-            public Tensor ProcessImageBmp(Bitmap imgObj)
+            public Tensor ProcessImageBmp(VBuffer<byte> imgObj)
             {
-                byte[] byteImage = GetRgbValues(imgObj);
-                var imgHandle = GCHandle.Alloc(byteImage, GCHandleType.Pinned);
-                IntPtr imgPtr = imgHandle.AddrOfPinnedObject();
-                //var byteImage = Transforms.ExtractPixels();
-                int channels = 3; 
-                if(byteImage.Length == imgObj.Height * imgObj.Width)
-                {
-                    channels = 1;
-                }
-                var imageTensor = new Tensor(imgPtr, new long[] { imgObj.Height, imgObj.Width, channels }, TF_DataType.TF_UINT8, sizeof(byte) * byteImage.Length);
+                var imageTensor = new Tensor(imgObj.DenseValues().ToArray(),TF_DataType.TF_UINT8);
                 var processedTensor = _imagePreprocessingRunner.AddInput(imageTensor, 0).Run()[0];
                 imageTensor.Dispose();
                 return processedTensor;
@@ -364,13 +355,13 @@ namespace Microsoft.ML.Transforms
             using (var cursor = input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageObjColumn.Index || c.Index == imagePathColumn.Index)))
             {
                 var labelGetter = cursor.GetGetter<uint>(labelColumn);
-                var imageObjGetter = cursor.GetGetter<Bitmap>(imageObjColumn);
+                var imageObjGetter = cursor.GetGetter<VBuffer<byte>>(imageObjColumn);
 
                 var imagePathGetter = cursor.GetGetter<ReadOnlyMemory<char>>(imagePathColumn);
                 ReadOnlyMemory<char> imagePath = default;
 
                 UInt32 label = UInt32.MaxValue;
-                Bitmap imageObj = default;
+                VBuffer<byte> imageObj = default;
                 runner.AddInput(inputTensorName);
                 ImageClassificationMetrics metrics = new ImageClassificationMetrics();
                 metrics.Bottleneck = new BottleneckMetrics();
@@ -948,8 +939,8 @@ namespace Microsoft.ML.Transforms
             private class OutputCache
             {
                 public long Position;
-                private ValueGetter<Bitmap> _imageObjGetter;
-                private Bitmap _imageObj;
+                private ValueGetter<VBuffer<byte>> _imageObjGetter;
+                private VBuffer<byte> _imageObj;
                 private Runner _runner;
                 private ImageProcessor _imageProcessor;
                 public UInt32 PredictedLabel { get; set; }
@@ -959,7 +950,7 @@ namespace Microsoft.ML.Transforms
                 public OutputCache(DataViewRow input, ImageClassificationTransformer transformer)
                 {
                     _imageObj = default;
-                    _imageObjGetter = input.GetGetter<Bitmap>(input.Schema[transformer._inputs[0]]);
+                    _imageObjGetter = input.GetGetter<VBuffer<byte>>(input.Schema[transformer._inputs[0]]);
                     _runner = new Runner(transformer._session);
                     _runner.AddInput(transformer._inputTensorName);
                     _runner.AddOutputs(transformer._softmaxTensorName);
