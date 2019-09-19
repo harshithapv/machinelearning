@@ -30,10 +30,10 @@ namespace Samples.Dynamic
                 "images");
 
             //Download the image set and unzip
-            //string finalImagesFolderName = "micro-imagenet";
+            string finalImagesFolderName = "flower_photos";
             
-            string finalImagesFolderName = DownloadImageSet(
-                imagesDownloadFolderPath);
+            //string finalImagesFolderName = DownloadImageSet(
+            //    imagesDownloadFolderPath);
             
             string fullImagesetFolderPath = Path.Combine(
                 imagesDownloadFolderPath, finalImagesFolderName);
@@ -74,8 +74,8 @@ namespace Samples.Dynamic
                     // model. 
                     arch: ImageClassificationEstimator.Architecture.ResnetV2101,
                     epoch: 50,
-                    batchSize: 10,
-                    learningRate: 0.01f,
+                    batchSize: 20,
+                    learningRate: 0.08f,
                     metricsCallback: (metrics) => Console.WriteLine(metrics),
                     validationSet: testDataset);
 
@@ -139,9 +139,15 @@ namespace Samples.Dynamic
             IEnumerable<ImageData> testImages = LoadImagesFromDirectory(
                 imagesForPredictions, false);
 
+            byte[] imgBytes = File.ReadAllBytes(testImages.First().ImagePath);
+            VBuffer<Byte> imgData = new VBuffer<byte>(imgBytes.Length, imgBytes);
+
             ImageData imageToPredict = new ImageData
             {
-                ImagePath = testImages.First().ImagePath
+                ImagePath = testImages.First().ImagePath,
+                ImageVBuf = imgData
+
+
             };
 
             var prediction = predictionEngine.Predict(imageToPredict);
