@@ -13,6 +13,7 @@ using System.Threading;
 using System.Net;
 using Microsoft.ML.Transforms.Image;
 using System.Drawing;
+using System.Runtime.InteropServices;
 
 namespace Samples.Dynamic
 {
@@ -74,8 +75,8 @@ namespace Samples.Dynamic
                     // model. 
                     arch: ImageClassificationEstimator.Architecture.ResnetV2101,
                     epoch: 50,
-                    batchSize: 20,
-                    learningRate: 0.08f,
+                    batchSize: 10,
+                    learningRate: 0.01f,
                     metricsCallback: (metrics) => Console.WriteLine(metrics),
                     validationSet: testDataset);
 
@@ -182,12 +183,52 @@ namespace Samples.Dynamic
                 (elapsed2Ms / 1000).ToString() + " seconds");
         }
 
+        public static int LoadDataIntoBuffer(string path, ref VBuffer<Byte> imgData)
+        {
+            int count = -1;
+            // bufferSize == 1 used to avoid unnecessary buffer in FileStream
+            using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1))
+            {
+                long fileLength = fs.Length;
+                if (fileLength > int.MaxValue)
+                    throw new IOException($"File {path} too big to open.");
+                else if (fileLength == 0)
+                {
+                    byte[] _imageBuffer;                  
+
+                    // Some file systems (e.g. procfs on Linux) return 0 for length even when there's content.
+                    // Thus we need to assume 0 doesn't mean empty.
+                    _imageBuffer = File.ReadAllBytes(path);
+                    count = _imageBuffer.Length;
+                    Console.WriteLine("File length is zero");
+                }
+
+                count = (int)fileLength;
+                var editor = VBufferEditor.Create(ref imgData, count);
+                //var buffer = File.ReadAllBytes(path);
+                fs.Read(editor.Values);
+                /*
+                for (int i = 0; i < count; i++)
+                {
+                    //editor.Values[i] = (byte) fs.ReadByte();
+                    editor.Values[i] = buffer[i];
+                }
+                */
+                imgData = editor.Commit();
+
+                return count;
+            }
+        }
+
+
         public static IEnumerable<ImageData> LoadImagesFromDirectory(string folder,
             bool useFolderNameasLabel = true)
         {
             var files = Directory.GetFiles(folder, "*",
                 searchOption: SearchOption.AllDirectories);
 
+            VBuffer<Byte> imgData = new VBuffer<byte>();
+            
             foreach (var file in files)
             {
                 if (Path.GetExtension(file) != ".JPEG" && Path.GetExtension(file) != ".jpg")
@@ -209,8 +250,8 @@ namespace Samples.Dynamic
                 }
 
                 // Get the buffer of bytes
-                byte[] imgBytes = File.ReadAllBytes(Path.Combine(folder, file));
-                VBuffer<Byte> imgData = new VBuffer<byte>(imgBytes.Length,imgBytes);                
+                int imgSize = LoadDataIntoBuffer(file, ref imgData);
+
 
                 yield return new ImageData()
                 {
@@ -364,8 +405,7 @@ namespace Samples.Dynamic
 
             [LoadColumn(1)]
             public string Label;
-
-            //[LoadColumn(2)]
+                        
             public VBuffer<byte> ImageVBuf;
 
         }

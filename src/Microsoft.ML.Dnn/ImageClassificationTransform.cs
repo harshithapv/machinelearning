@@ -197,6 +197,25 @@ namespace Microsoft.ML.Transforms
             return (jpegData, resizedImage);
         }
 
+        private static Tensor Encode(VBuffer<byte> buffer,int length)
+        {
+            var size = c_api.TF_StringEncodedSize((UIntPtr)length);
+            var handle = c_api.TF_AllocateTensor(TF_DataType.TF_STRING, IntPtr.Zero, 0, (UIntPtr)((ulong)size + 8));
+            //AllocationType = AllocationType.Tensorflow;
+
+            IntPtr tensor = c_api.TF_TensorData(handle);
+            Marshal.WriteInt64(tensor, 0);
+
+            var status = new Status();
+            unsafe
+            {
+                fixed (byte* src = buffer.GetValues())
+                    c_api.TF_StringEncode(src, (UIntPtr)length, (sbyte*)(tensor + sizeof(Int64)), size, status);
+            }
+            status.Check(true);
+            return new Tensor(handle);
+        }
+
         private (Tensor, Tensor) AddBitMapDecoding(int height, int width, int depth)
         {
             // height, width, depth
@@ -234,7 +253,12 @@ namespace Microsoft.ML.Transforms
 
             public Tensor ProcessImage(VBuffer<byte> imgBuf)
             {
-                var imageTensor = new Tensor(imgBuf.DenseValues().ToArray(), TF_DataType.TF_STRING);
+                // var imageTensor = new Tensor(imgBuf.DenseValues().ToArray(), TF_DataType.TF_UINT8);
+                //var buffer = imgBuf.DenseValues().ToArray();
+                //var buf = new Tensor(imgBuf.GetValues(), TF_DataType.TF_STRING);
+                //var buffer2 = new byte[buffer.Length + 100];
+                //Array.Copy(buffer, 0, buffer2, 0, buffer.Length);
+                var imageTensor = Encode(imgBuf, imgBuf.Length);
                 var processedTensor = _imagePreprocessingRunner.AddInput(imageTensor, 0).Run()[0];
                 imageTensor.Dispose();
                 return processedTensor;
@@ -270,15 +294,20 @@ namespace Microsoft.ML.Transforms
 
                 return rgbValues;
             }
-
+            /*
             public Tensor ProcessImageBmp(VBuffer<byte> imgObj)
             {
-                var imageTensor = new Tensor(imgObj.DenseValues().ToArray(),TF_DataType.TF_UINT8);
+               
+                var buffer = imgObj.DenseValues().ToArray();
+                var buffer2 = new byte[buffer.Length + 100];
+                Array.Copy(buffer, 0, buffer2, 0, buffer.Length);
+                var imageTensor = null;// Encode(buffer2,buffer.Length);
                 var processedTensor = _imagePreprocessingRunner.AddInput(imageTensor, 0).Run()[0];
                 imageTensor.Dispose();
                 return processedTensor;
+                
             }
-
+            */
         }
 
         private void CacheFeaturizedImagesToDisk(IDataView input, string labelColumnName, string imageColumnName,
@@ -293,18 +322,19 @@ namespace Microsoft.ML.Transforms
                     labelColumn.Type.RawType.ToString());
 
             var imageColumn = input.Schema[imageColumnName];
-            var imagePathColumn = input.Schema["ImagePath"];
+            //var imageSizeColumn = input.Schema["ImageSize"];
+            //var imagePathColumn = input.Schema["ImagePath"];
             Runner runner = new Runner(_session);
             runner.AddOutputs(outputTensorName);
 
             using (TextWriter writer = File.CreateText(cacheFilePath))
-            using (var cursor = input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imagePathColumn.Index || c.Index == imageColumn.Index)))
+            using (var cursor = input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index )))
             {
                 var labelGetter = cursor.GetGetter<uint>(labelColumn);
-                var imagePathGetter = cursor.GetGetter<ReadOnlyMemory<char>>(imagePathColumn);
+                //var imagePathGetter = cursor.GetGetter<ReadOnlyMemory<char>>(imagePathColumn);
                 var imageGetter = cursor.GetGetter<VBuffer<byte>>(imageColumn);
                 UInt32 label = UInt32.MaxValue;
-                ReadOnlyMemory<char> imagePath = default;
+                //ReadOnlyMemory<char> imagePath = default;
                 VBuffer<byte> imageBuf = default;
                 runner.AddInput(inputTensorName);
                 ImageClassificationMetrics metrics = new ImageClassificationMetrics();
@@ -313,9 +343,9 @@ namespace Microsoft.ML.Transforms
                 while (cursor.MoveNext())
                 {
                     labelGetter(ref label);
-                    imagePathGetter(ref imagePath);
+                    //imagePathGetter(ref imagePath);
                     imageGetter(ref imageBuf);
-                    var imagePathStr = imagePath.ToString();
+                    //var imagePathStr = imagePath.ToString();
                     var imageTensor = imageProcessor.ProcessImage(imageBuf);
                     runner.AddInput(imageTensor, 0);
                     var featurizedImage = runner.Run()[0]; // Reuse memory?
@@ -323,7 +353,7 @@ namespace Microsoft.ML.Transforms
                     featurizedImage.Dispose();
                     imageTensor.Dispose();
                     metrics.Bottleneck.Index++;
-                    metrics.Bottleneck.Name = imagePathStr;
+                    //metrics.Bottleneck.Name = imagePathStr;
                     metricsCallback?.Invoke(metrics);
                 }
             }
