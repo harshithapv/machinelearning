@@ -34,7 +34,7 @@ namespace Samples.Dynamic
             string finalImagesFolderName = "flower_photos";
             
             //string finalImagesFolderName = DownloadImageSet(
-            //    imagesDownloadFolderPath);
+               // imagesDownloadFolderPath);
             
             string fullImagesetFolderPath = Path.Combine(
                 imagesDownloadFolderPath, finalImagesFolderName);
@@ -66,9 +66,11 @@ namespace Samples.Dynamic
                 IDataView trainDataset = trainTestData.TrainSet;
                 IDataView testDataset = trainTestData.TestSet;
 
-                //var testDatasetWithImgObj = mlContext.Transforms.LoadImages("ImageObject", fullImagesetFolderPath, "ImagePath").Fit(testDataset).Transform(testDataset);
+                var testDatasetWithImgBuf = mlContext.Transforms.LoadImagesAsBytes("ImageVBuf", fullImagesetFolderPath, "ImagePath")
+                    .Fit(testDataset).Transform(testDataset);
 
-                var pipeline = mlContext.Model.ImageClassification(
+                var pipeline = mlContext.Transforms.LoadImagesAsBytes("ImageVBuf", fullImagesetFolderPath, "ImagePath")
+                    .Append(mlContext.Model.ImageClassification(
                     "ImageVBuf", "Label",
                     // Just by changing/selecting InceptionV3 here instead of 
                     // ResnetV2101 you can try a different architecture/pre-trained 
@@ -78,7 +80,9 @@ namespace Samples.Dynamic
                     batchSize: 10,
                     learningRate: 0.01f,
                     metricsCallback: (metrics) => Console.WriteLine(metrics),
-                    validationSet: testDataset);
+                    validationSet: testDatasetWithImgBuf,
+                    reuseTrainSetBottleneckCachedValues: false,
+                    reuseValidationSetBottleneckCachedValues: false));
 
 
                 Console.WriteLine("*** Training the image classification model with " +
@@ -140,13 +144,13 @@ namespace Samples.Dynamic
             IEnumerable<ImageData> testImages = LoadImagesFromDirectory(
                 imagesForPredictions, false);
 
-            byte[] imgBytes = File.ReadAllBytes(testImages.First().ImagePath);
-            VBuffer<Byte> imgData = new VBuffer<byte>(imgBytes.Length, imgBytes);
+            //byte[] imgBytes = File.ReadAllBytes(testImages.First().ImagePath);
+            //VBuffer<Byte> imgData = new VBuffer<byte>(imgBytes.Length, imgBytes);
 
             ImageData imageToPredict = new ImageData
             {
                 ImagePath = testImages.First().ImagePath,
-                ImageVBuf = imgData
+                //ImageVBuf = imgData
 
 
             };
@@ -227,7 +231,7 @@ namespace Samples.Dynamic
             var files = Directory.GetFiles(folder, "*",
                 searchOption: SearchOption.AllDirectories);
 
-            VBuffer<Byte> imgData = new VBuffer<byte>();
+            //VBuffer<Byte> imgData = new VBuffer<byte>();
             
             foreach (var file in files)
             {
@@ -250,14 +254,14 @@ namespace Samples.Dynamic
                 }
 
                 // Get the buffer of bytes
-                int imgSize = LoadDataIntoBuffer(file, ref imgData);
+                //int imgSize = LoadDataIntoBuffer(file, ref imgData);
 
 
                 yield return new ImageData()
                 {
                     ImagePath = file,
                     Label = label,
-                    ImageVBuf = imgData
+                    //ImageVBuf = imgData
                 };
 
             }
@@ -406,7 +410,7 @@ namespace Samples.Dynamic
             [LoadColumn(1)]
             public string Label;
                         
-            public VBuffer<byte> ImageVBuf;
+            //public VBuffer<byte> ImageVBuf;
 
         }
 

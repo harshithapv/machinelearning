@@ -84,7 +84,7 @@ namespace Microsoft.ML.Data
         private readonly int _logicalLength;
         private readonly T[] _values;
         private readonly int[] _indices;
-
+        public T[] GetValues => _values;
         /// <summary>
         /// The mutable span of values.
         /// </summary>

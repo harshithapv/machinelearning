@@ -9,6 +9,8 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Google.Protobuf;
 using Microsoft.ML;
 using Microsoft.ML.CommandLine;
@@ -152,11 +154,14 @@ namespace Microsoft.ML.Transforms
             env.CheckValue(options, nameof(options));
             env.CheckValue(input, nameof(input));
             CheckTrainingParameters(options);
-            var imageProcessor = new ImageProcessor(this);
+          // // int cores = 4;
+         //   ImageProcessor[] imageProcessor = new ImageProcessor[cores];
+          //  for(int i = 0; i < cores; i++)
+            //    imageProcessor[i] = new ImageProcessor(this);
             if (!options.ReuseTrainSetBottleneckCachedValues || !File.Exists(options.TrainSetBottleneckCachedValuesFilePath))
             {
 
-                CacheFeaturizedImagesToDisk(input, options.LabelColumn, options.InputColumns[0], imageProcessor,
+                CacheFeaturizedImagesToDisk(input, options.LabelColumn, options.InputColumns[0], //imageProcessor,
                     _inputTensorName, _bottleneckTensor.name, options.TrainSetBottleneckCachedValuesFilePath,
                     ImageClassificationMetrics.Dataset.Train, options.MetricsCallback);
 
@@ -166,7 +171,7 @@ namespace Microsoft.ML.Transforms
             {
 
                 CacheFeaturizedImagesToDisk(options.ValidationSet, options.LabelColumn, options.InputColumns[0],
-                    imageProcessor, _inputTensorName, _bottleneckTensor.name, options.ValidationSetBottleneckCachedValuesFilePath,
+                   /* imageProcessor,*/ _inputTensorName, _bottleneckTensor.name, options.ValidationSetBottleneckCachedValuesFilePath,
                     ImageClassificationMetrics.Dataset.Validation, options.MetricsCallback);
 
             }
@@ -310,12 +315,59 @@ namespace Microsoft.ML.Transforms
             */
         }
 
+        private static void WriteToFileThreadSafe(TextWriter writer, ReaderWriterLock rwl, string text, ref int writerTimeouts)
+        {
+            try
+            {
+                rwl.AcquireWriterLock(100);
+                try
+                {
+                    // It's safe for this thread to access from the shared resource.
+                    writer.WriteLine(text);
+                }
+                finally
+                {
+                    // Ensure that the lock is released.
+                    rwl.ReleaseWriterLock();
+                }
+            }
+            catch (ApplicationException)
+            {
+                // The writer lock request timed out.
+                Interlocked.Increment(ref writerTimeouts);
+            }
+
+        }
+
+        private static void WriteFeaturizedImagesToDisk(ImageProcessor imageProcessor, Runner runner, int index, VBuffer<byte> imageBuf, UInt32 label, ImageClassificationMetricsCallback metricsCallback,
+            TextWriter writer, ImageClassificationMetrics metrics, ReaderWriterLock rwl, ref int writerTimeouts)
+        {
+
+            //var imagePathStr = imagePath.ToString();
+            var imageTensor = imageProcessor.ProcessImage(imageBuf);
+            //Console.WriteLine("size of the image : " + imageBuf.Length + ", index : " + index);
+            runner.AddInput(imageTensor, 0);
+            var featurizedImage = runner.Run()[0]; // Reuse memory?
+            // write to file in a thread safe manner
+            string text = label - 1 + "," + string.Join(",", featurizedImage.ToArray<float>());
+            //writer.WriteLine(label - 1 + "," + string.Join(",", featurizedImage.ToArray<float>()));
+            WriteToFileThreadSafe(writer, rwl,text, ref writerTimeouts);
+            featurizedImage.Dispose();
+            imageTensor.Dispose();
+            metrics.Bottleneck.Index++;
+            //metrics.Bottleneck.Name = imagePathStr;
+            metricsCallback?.Invoke(metrics);
+
+        }
+
+
         private void CacheFeaturizedImagesToDisk(IDataView input, string labelColumnName, string imageColumnName,
-            ImageProcessor imageProcessor, string inputTensorName, string outputTensorName, string cacheFilePath,
+           /* ImageProcessor[] imageProcessor,*/ string inputTensorName, string outputTensorName, string cacheFilePath,
             ImageClassificationMetrics.Dataset dataset, ImageClassificationMetricsCallback metricsCallback)
         {
             var labelColumn = input.Schema[labelColumnName];
-
+            //int cores = 4;
+            //int numThreads = 4;
             if (labelColumn.Type.RawType != typeof(UInt32))
                 throw Host.ExceptSchemaMismatch(nameof(labelColumn), "Label",
                     labelColumnName, typeof(uint).ToString(),
@@ -324,39 +376,80 @@ namespace Microsoft.ML.Transforms
             var imageColumn = input.Schema[imageColumnName];
             //var imageSizeColumn = input.Schema["ImageSize"];
             //var imagePathColumn = input.Schema["ImagePath"];
-            Runner runner = new Runner(_session);
-            runner.AddOutputs(outputTensorName);
+            /* Runner[] runner = new Runner[cores];//= new Runner(_session);
+             for (int i = 0; i < cores; i++)
+             {
+                 runner[i] = new Runner(_session);
+                 runner[i].AddOutputs(outputTensorName);
+             }*/
 
-            using (TextWriter writer = File.CreateText(cacheFilePath))
-            using (var cursor = input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index )))
-            {
-                var labelGetter = cursor.GetGetter<uint>(labelColumn);
-                //var imagePathGetter = cursor.GetGetter<ReadOnlyMemory<char>>(imagePathColumn);
-                var imageGetter = cursor.GetGetter<VBuffer<byte>>(imageColumn);
-                UInt32 label = UInt32.MaxValue;
-                //ReadOnlyMemory<char> imagePath = default;
-                VBuffer<byte> imageBuf = default;
-                runner.AddInput(inputTensorName);
-                ImageClassificationMetrics metrics = new ImageClassificationMetrics();
-                metrics.Bottleneck = new BottleneckMetrics();
-                metrics.Bottleneck.DatasetUsed = dataset;
-                while (cursor.MoveNext())
+            var cursors = DataViewUtils.CreateSplitCursors(Host, input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index)), 7);
+            /*new[] {
+                input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index)),
+                input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index)),
+                input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index)),
+                input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index)),
+                input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index)),
+                input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index)),
+                input.GetRowCursor(input.Schema.Where(c => c.Index == labelColumn.Index || c.Index == imageColumn.Index))};*/
+
+           // using (TextWriter writer = File.CreateText(cacheFilePath))
+           //  {
+            Parallel.For(0, 7, index =>
                 {
-                    labelGetter(ref label);
-                    //imagePathGetter(ref imagePath);
-                    imageGetter(ref imageBuf);
-                    //var imagePathStr = imagePath.ToString();
-                    var imageTensor = imageProcessor.ProcessImage(imageBuf);
-                    runner.AddInput(imageTensor, 0);
-                    var featurizedImage = runner.Run()[0]; // Reuse memory?
-                    writer.WriteLine(label - 1 + "," + string.Join(",", featurizedImage.ToArray<float>()));
-                    featurizedImage.Dispose();
-                    imageTensor.Dispose();
-                    metrics.Bottleneck.Index++;
-                    //metrics.Bottleneck.Name = imagePathStr;
-                    metricsCallback?.Invoke(metrics);
+                    using (TextWriter writer = File.CreateText(index + "_" + cacheFilePath))
+                    using (var cursor = cursors[index])
+                    {
+                        _session.graph.as_default();
+                        Runner runner = new Runner(_session);
+                        runner.AddOutputs(outputTensorName);
+                        var labelGetter = cursor.GetGetter<uint>(labelColumn);
+                        //var imagePathGetter = cursor.GetGetter<ReadOnlyMemory<char>>(imagePathColumn);
+                        var imageGetter = cursor.GetGetter<VBuffer<byte>>(imageColumn);
+                        UInt32 label = UInt32.MaxValue;
+                        //ReadOnlyMemory<char> imagePath = default;
+                        VBuffer<byte> imageBuf = default;
+                        runner.AddInput(inputTensorName);
+                        ImageClassificationMetrics metrics = new ImageClassificationMetrics();
+                        metrics.Bottleneck = new BottleneckMetrics();
+                        metrics.Bottleneck.DatasetUsed = dataset;
+                        var imageProcessor = new ImageProcessor(this);
+                        while (cursor.MoveNext())
+                        {
+                            //if (cursor.Position % 7 != index)
+                              //  continue;
+
+                            labelGetter(ref label);
+                            //imagePathGetter(ref imagePath);
+                            imageGetter(ref imageBuf);
+                            //var imagePathStr = imagePath.ToString();
+                            var imageTensor = imageProcessor.ProcessImage(imageBuf);
+                            runner.AddInput(imageTensor, 0);
+                            var featurizedImage = runner.Run()[0]; // Reuse memory
+                            writer.WriteLine(label - 1 + "," + string.Join(",", featurizedImage.ToArray<float>()));
+
+                            featurizedImage.Dispose();
+                            imageTensor.Dispose();
+                            metrics.Bottleneck.Index = (int)cursor.Position;
+                            //metrics.Bottleneck.Name = imagePathStr;
+                            metricsCallback?.Invoke(metrics);
+                        }
+                    }
+                });
+
+            File.Delete(cacheFilePath);
+                using (Stream destStream = File.OpenWrite(cacheFilePath))
+                {
+                    for(int index = 0; index < 7; index++)
+                    {
+                    string srcFileName = index + "_" + cacheFilePath;
+                        using (Stream srcStream = File.OpenRead(srcFileName))
+                        {
+                            srcStream.CopyTo(destStream);
+                        }
+                    }
                 }
-            }
+            //}
         }
 
         private IDataView GetShuffledData(string path)
@@ -376,7 +469,7 @@ namespace Microsoft.ML.Transforms
                         Columns = new[]
                         {
                                         new Column("Label", DataKind.Int64, 0),
-                                        new Column("Features", DataKind.Single, new [] { new Range(1, null) }),
+                                        new Column("Features", DataKind.Single, new [] { new Data.TextLoader.Range(1, null) }),
                         },
                     },
                     new MultiFileSource(path))
