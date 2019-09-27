@@ -66,7 +66,7 @@ namespace Samples.Dynamic
                 IDataView trainDataset = trainTestData.TrainSet;
                 IDataView testDataset = trainTestData.TestSet;
                 DataViewType imageType = new VectorDataViewType(NumberDataViewType.Byte);
-                var testDatasetWithImgBuf = mlContext.Transforms.LoadImages("ImageVBuf", fullImagesetFolderPath, imageType , "ImagePath")
+                var testDatasetWithImgBuf = mlContext.Transforms.LoadImages("ImageVBuf", fullImagesetFolderPath ,imageType, "ImagePath")
                     .Fit(testDataset).Transform(testDataset);
 
                 var pipeline = mlContext.Transforms.LoadImages("ImageVBuf", fullImagesetFolderPath, imageType, "ImagePath")

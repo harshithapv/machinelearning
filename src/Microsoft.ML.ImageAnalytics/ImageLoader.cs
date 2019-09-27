@@ -99,7 +99,7 @@ namespace Microsoft.ML.Data
             : base(Contracts.CheckRef(env, nameof(env)).Register(nameof(ImageLoadingTransformer)), columns)
         {
             ImageFolder = imageFolder;
-            if(type.Equals(null))
+            if(type == null)
                 Type = new ImageDataViewType();
             else
                 Type = type;
@@ -452,7 +452,7 @@ namespace Microsoft.ML.Data
         internal ImageLoadingEstimator(IHostEnvironment env, ImageLoadingTransformer transformer, DataViewType type = null)
             : base(Contracts.CheckRef(env, nameof(env)).Register(nameof(ImageLoadingEstimator)), transformer)
         {
-            if(type.Equals(null))
+            if (type == null)
                 _imageType = new ImageDataViewType();
             else
                 _imageType = type;
