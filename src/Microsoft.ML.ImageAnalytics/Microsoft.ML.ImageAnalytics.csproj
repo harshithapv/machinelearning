@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFrameworks>netstandard2.0;netstandard2.1</TargetFrameworks>    
     <IncludeInPackage>Microsoft.ML.ImageAnalytics</IncludeInPackage>
   </PropertyGroup>
   
@@ -13,5 +13,5 @@
     <ProjectReference Include="..\Microsoft.ML.Core\Microsoft.ML.Core.csproj" />
     <ProjectReference Include="..\Microsoft.ML.Data\Microsoft.ML.Data.csproj" />
   </ItemGroup>
-
+ 
 </Project>

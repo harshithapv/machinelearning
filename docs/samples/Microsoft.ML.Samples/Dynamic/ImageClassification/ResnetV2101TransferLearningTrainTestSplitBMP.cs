@@ -65,11 +65,11 @@ namespace Samples.Dynamic
 
                 IDataView trainDataset = trainTestData.TrainSet;
                 IDataView testDataset = trainTestData.TestSet;
-
-                var testDatasetWithImgBuf = mlContext.Transforms.LoadImagesAsBytes("ImageVBuf", fullImagesetFolderPath, "ImagePath")
+                DataViewType imageType = new VectorDataViewType(NumberDataViewType.Byte);
+                var testDatasetWithImgBuf = mlContext.Transforms.LoadImages("ImageVBuf", fullImagesetFolderPath, imageType , "ImagePath")
                     .Fit(testDataset).Transform(testDataset);
 
-                var pipeline = mlContext.Transforms.LoadImagesAsBytes("ImageVBuf", fullImagesetFolderPath, "ImagePath")
+                var pipeline = mlContext.Transforms.LoadImages("ImageVBuf", fullImagesetFolderPath, imageType, "ImagePath")
                     .Append(mlContext.Model.ImageClassification(
                     "ImageVBuf", "Label",
                     // Just by changing/selecting InceptionV3 here instead of 

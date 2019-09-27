@@ -99,7 +99,7 @@ namespace Microsoft.ML
         }
 
         /// <summary>
-        /// Create a <see cref="ImageLoadingEstimatorByte"/>, which loads the data from the column specified in <paramref name="inputColumnName"/>
+        /// Create a <see cref="ImageLoadingEstimator"/>, which loads the data from the column specified in <paramref name="inputColumnName"/>
         /// as an image to a new column: <paramref name="outputColumnName"/>.
         /// </summary>
         /// <param name="catalog">The transform's catalog.</param>
@@ -108,17 +108,18 @@ namespace Microsoft.ML
         /// <param name="inputColumnName">Name of the column with paths to the images to load.
         /// This estimator operates over text data.</param>
         /// <param name="imageFolder">Folder where to look for images.</param>
+        /// <param name="type"></param>
         /// <example>
         /// <format type="text/markdown">
         /// <![CDATA[
-        ///  [!code-csharp[LoadImagesAsBytes](~/../docs/samples/docs/samples/Microsoft.ML.Samples/Dynamic/Transforms/ImageAnalytics/LoadImages.cs)]
+        ///  [!code-csharp[LoadImages](~/../docs/samples/docs/samples/Microsoft.ML.Samples/Dynamic/Transforms/ImageAnalytics/LoadImages.cs)]
         /// ]]></format>
         /// </example>
-        public static ImageLoadingEstimatorByte LoadImagesAsBytes(this TransformsCatalog catalog, string outputColumnName, string imageFolder, string inputColumnName = null)
-           => new ImageLoadingEstimatorByte(CatalogUtils.GetEnvironment(catalog), imageFolder, new[] { (outputColumnName, inputColumnName ?? outputColumnName) });
+        public static ImageLoadingEstimator LoadImages(this TransformsCatalog catalog, string outputColumnName, string imageFolder, DataViewType type, string inputColumnName = null)
+           => new ImageLoadingEstimator(CatalogUtils.GetEnvironment(catalog), imageFolder, type, new[] { (outputColumnName, inputColumnName ?? outputColumnName) });
 
         /// <summary>
-        /// Loads the images from the <see cref="ImageLoadingTransformerByte.ImageFolder" /> into memory.
+        /// Loads the images from the <see cref="ImageLoadingTransformer.ImageFolder" /> into memory.
         /// </summary>
         /// <remarks>
         /// The image get loaded in memory as a <see cref="VectorDataViewType" /> of bytes.
@@ -129,6 +130,7 @@ namespace Microsoft.ML
         /// </remarks>
         /// <param name="catalog">The transform's catalog.</param>
         /// <param name="imageFolder">Folder where to look for images.</param>
+        /// <param name="type"></param>
         /// <param name="columns">Specifies the names of the input columns for the transformation, and their respective output column names.</param>
         /// <example>
         /// <format type="text/markdown">
@@ -137,11 +139,11 @@ namespace Microsoft.ML
         /// ]]></format>
         /// </example>
         [BestFriend]
-        internal static ImageLoadingEstimatorByte LoadImagesAsBytes(this TransformsCatalog catalog, string imageFolder, params InputOutputColumnPair[] columns)
+        internal static ImageLoadingEstimator LoadImages(this TransformsCatalog catalog, string imageFolder, DataViewType type, params InputOutputColumnPair[] columns)
         {
             var env = CatalogUtils.GetEnvironment(catalog);
             env.CheckValue(columns, nameof(columns));
-            return new ImageLoadingEstimatorByte(env, imageFolder, InputOutputColumnPair.ConvertToValueTuples(columns));
+            return new ImageLoadingEstimator(env, imageFolder, type, InputOutputColumnPair.ConvertToValueTuples(columns));
         }
 
         /// <summary>

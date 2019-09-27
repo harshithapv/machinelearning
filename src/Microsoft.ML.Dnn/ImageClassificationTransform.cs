@@ -1345,14 +1345,14 @@ namespace Microsoft.ML.Transforms
             /// <summary>
             /// Indicates the file path to store validationset bottleneck values for caching.
             /// </summary>
-            [Argument(ArgumentType.AtMostOnce, HelpText = "Indicates the file path to store validationset bottleneck values for caching.", SortOrder = 15)]
+            [Argument(ArgumentType.AtMostOnce, HelpText = "IndicateNumberDataViewType.Bytes the file path to store validationset bottleneck values for caching.", SortOrder = 15)]
             public string ValidationSetBottleneckCachedValuesFilePath;
         }
 
         private readonly IHost _host;
         private readonly Options _options;
         private readonly DnnModel _dnnModel;
-        //private readonly DataViewType[] _tfInputTypes;
+        private readonly DataViewType[] _tfInputTypes;
         private readonly DataViewType[] _outputTypes;
         private ImageClassificationTransformer _transformer;
 
@@ -1361,7 +1361,7 @@ namespace Microsoft.ML.Transforms
             _host = Contracts.CheckRef(env, nameof(env)).Register(nameof(ImageClassificationEstimator));
             _options = options;
             _dnnModel = dnnModel;
-            //_tfInputTypes = new[] { Image };
+            _tfInputTypes = new[] { new VectorDataViewType(NumberDataViewType.Byte) };
             _outputTypes = new[] { new VectorDataViewType(NumberDataViewType.Single), NumberDataViewType.UInt32.GetItemType() };
         }
 
@@ -1388,9 +1388,9 @@ namespace Microsoft.ML.Transforms
                 var input = _options.InputColumns[i];
                 if (!inputSchema.TryFindColumn(input, out var col))
                     throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", input);
-                //var expectedType = DnnUtils.Tf2MlNetType(_tfInputTypes[i]);
-                //if (col.ItemType != expectedType)
-                //    throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", input, expectedType.ToString(), col.ItemType.ToString());
+                var expectedType = _tfInputTypes[i];
+                if (!col.ItemType.Equals(expectedType))
+                    throw _host.ExceptSchemaMismatch(nameof(inputSchema), "input", input, expectedType.ToString(), col.ItemType.ToString());
             }
             for (var i = 0; i < _options.OutputColumns.Length; i++)
             {
