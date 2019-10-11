@@ -85,7 +85,7 @@ namespace Samples.Dynamic
                         // Just by changing/selecting InceptionV3 here instead of 
                         // ResnetV2101 you can try a different architecture/pre-trained 
                         // model. 
-                        arch: ImageClassificationEstimator.Architecture.ResnetV2101,
+                        arch: ImageClassificationEstimator.Architecture.ResnetV250,
                         epoch: 50,
                         batchSize: 10,
                         learningRate: 0.01f,
