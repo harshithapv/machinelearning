@@ -67,7 +67,7 @@ namespace Samples.Dynamic
                 // Just by changing/selecting InceptionV3/MobilenetV2/ResnetV250
                 // here instead of ResnetV2101 you can try a different 
                 // architecture/pre-trained model. 
-                Arch = ImageClassificationTrainer.Architecture.ResnetV2101,
+                Arch = ImageClassificationTrainer.Architecture.ResnetV250,
                 BatchSize = 10,
                 LearningRate = 0.01f,
                 // Early Stopping allows for not having to set the number of 

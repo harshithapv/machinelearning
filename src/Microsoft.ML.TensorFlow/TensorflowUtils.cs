@@ -202,20 +202,58 @@ namespace Microsoft.ML.TensorFlow
             return graph;
         }
 
-        internal static Session LoadTFSessionByModelFilePath(IExceptionContext ectx, string modelFile, bool metaGraph = false)
+        internal static Graph LoadMetaAndCkptGraph(string metapath, string ckptpath, ref Session session)
+        {
+            Graph graph;
+            //var graph = new Graph();
+            graph = tf.get_default_graph();
+            session = tf.Session(graph);
+            var saver = tf.train.import_meta_graph(metapath); // load the meta graph
+            saver.restore(session, ckptpath); // load the checkpoint graph
+            /*var allVars = tf.get_collection<RefVariable>(tf.GraphKeys.GLOBAL_VARIABLES);
+            for (int i = 0; i < allVars.Count; i++)
+            {
+                if (allVars[i].name.Contains("weights"))
+                {
+                    Console.WriteLine(allVars[i].name);
+                    var varRun = session.run(allVars[i]);
+                    Console.WriteLine(varRun.shape);
+                    Console.WriteLine(varRun.ToString());
+                    break;
+                }
+            }*/
+            return graph;
+        }
+
+        internal static Session LoadTFSessionByModelFilePath(IExceptionContext ectx, string modelFile, bool metaGraph = false, string ckptPath = null)
         {
             if (string.IsNullOrEmpty(modelFile))
                 throw ectx.Except($"TensorFlow exception triggered while loading model from '{modelFile}'");
 
             Graph graph;
+            Session sess = null;
             try
             {
                 if (metaGraph)
+                {
                     graph = LoadMetaGraph(modelFile);
+                    sess = new Session(graph);
+                }
+                else if (ckptPath != null)
+                {
+                    graph = LoadMetaAndCkptGraph(modelFile, ckptPath, ref sess);
+                }
                 else
                 {
-                    graph = new Graph();
+                    /*graph = new Graph();
                     graph.Import(modelFile, "");
+                    sess = new Session(graph);*/
+                    var gp = new Graph();
+                    gp.as_default();
+                    var graphDef = GraphDef.Parser.ParseFrom(File.ReadAllBytes(modelFile));
+                    importer.import_graph_def(graphDef, name: "");
+                    sess = new Session(gp);
+
                 }
             }
             catch (Exception ex)
@@ -225,7 +263,25 @@ namespace Microsoft.ML.TensorFlow
 #pragma warning restore MSML_NoMessagesForLoadContext
 
             }
-            return new Session(graph);
+            //var sess = new Session(graph);
+            //test for weights
+            //tf.global_variables_initializer();
+            /*Console.WriteLine("in LoadTFSessionByModelFilePath .......................................");
+            var allVars = tf.get_collection<RefVariable>(tf.GraphKeys.GLOBAL_VARIABLES);
+            //new Runner(sess).AddOperation(tf.global_variables_initializer()).Run();
+            for (int i = 0; i < allVars.Count; i++)
+            {
+                if (allVars[i].name.Contains("weights"))
+                {
+                    Console.WriteLine(allVars[i].name);
+                    var varRun = sess.run(allVars[i]);
+                    Console.WriteLine(varRun.shape);
+                    Console.WriteLine(varRun.ToString());
+                    break;
+                }
+            }*/
+
+            return sess;
         }
 
         private static Session LoadTFSession(IHostEnvironment env, string exportDirSavedModel)
@@ -365,7 +421,7 @@ namespace Microsoft.ML.TensorFlow
         internal static TensorFlowSessionWrapper LoadDnnModel(IHostEnvironment env, string modelPath, bool metaGraph = false) =>
             new TensorFlowSessionWrapper(GetSession(env, modelPath, metaGraph), modelPath);
 
-        internal static Session GetSession(IHostEnvironment env, string modelPath, bool metaGraph = false)
+        internal static Session GetSession(IHostEnvironment env, string modelPath, bool metaGraph = false, string checkpointPath = null)
         {
             Contracts.Check(env != null, nameof(env));
             if (IsSavedModel(env, modelPath))
@@ -375,7 +431,7 @@ namespace Microsoft.ML.TensorFlow
             }
 
             env.CheckUserArg(File.Exists(modelPath), nameof(modelPath));
-            return LoadTFSessionByModelFilePath(env, modelPath, metaGraph);
+            return LoadTFSessionByModelFilePath(env, modelPath, metaGraph, checkpointPath);
         }
 
         internal static unsafe void FetchStringData<T>(Tensor tensor, Span<T> result)

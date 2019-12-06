@@ -26,21 +26,26 @@ namespace Samples.Dynamic
                 "images");
 
             //Download the image set and unzip, set the path to image folder.
-            string finalImagesFolderName = DownloadImageSet(
-                imagesDownloadFolderPath);
+            string finalImagesFolderName = "flower_photos_small_train_test_split//train";//"flower_photos";
+            //string finalImagesFolderName = DownloadImageSet(
+            //    imagesDownloadFolderPath);
             string fullImagesetFolderPath = Path.Combine(
                 imagesDownloadFolderPath, finalImagesFolderName);
-
+            string fullImagesetFolderPathTest = Path.Combine(
+                imagesDownloadFolderPath, "flower_photos_small_train_test_split//test");
             MLContext mlContext = new MLContext(seed: 1);
 
             // Load all the original images info.
             IEnumerable<ImageData> images = LoadImagesFromDirectory(
                 folder: fullImagesetFolderPath, useFolderNameAsLabel: true);
-
+            IEnumerable<ImageData> imagesTest = LoadImagesFromDirectory(
+                folder: fullImagesetFolderPathTest, useFolderNameAsLabel: true);
             // Shuffle images.
             IDataView shuffledFullImagesDataset = mlContext.Data.ShuffleRows(
-                mlContext.Data.LoadFromEnumerable(images));
+                mlContext.Data.LoadFromEnumerable(images), seed: 1);
 
+            IDataView shuffledFullImagesDatasetTest = mlContext.Data.ShuffleRows(
+                mlContext.Data.LoadFromEnumerable(imagesTest), seed:1);
             // Apply transforms to the input dataset:
             // MapValueToKey : map 'string' type labels to keys
             // LoadImages : load raw images to "Image" column
@@ -52,12 +57,19 @@ namespace Samples.Dynamic
                 .Fit(shuffledFullImagesDataset)
                 .Transform(shuffledFullImagesDataset);
 
+            shuffledFullImagesDatasetTest = mlContext.Transforms.Conversion
+                    .MapValueToKey("Label", keyOrdinality: Microsoft.ML.Transforms
+                    .ValueToKeyMappingEstimator.KeyOrdinality.ByValue)
+                .Append(mlContext.Transforms.LoadRawImageBytes("Image",
+                            fullImagesetFolderPath, "ImagePath"))
+                .Fit(shuffledFullImagesDatasetTest)
+                .Transform(shuffledFullImagesDatasetTest);
             // Split the data 90:10 into train and test sets.
-            TrainTestData trainTestData = mlContext.Data.TrainTestSplit(
-                shuffledFullImagesDataset, testFraction: 0.1, seed: 1);
+            //TrainTestData trainTestData = mlContext.Data.TrainTestSplit(
+            //    shuffledFullImagesDataset, testFraction: 0.1, seed: 1);
 
-            IDataView trainDataset = trainTestData.TrainSet;
-            IDataView testDataset = trainTestData.TestSet;
+            IDataView trainDataset = shuffledFullImagesDataset;//trainTestData.TrainSet;
+            IDataView testDataset = shuffledFullImagesDatasetTest;//trainTestData.TestSet;
 
             // Set the options for ImageClassification.
             var options = new ImageClassificationTrainer.Options()
@@ -67,14 +79,16 @@ namespace Samples.Dynamic
                 // Just by changing/selecting InceptionV3/MobilenetV2/ResnetV250
                 // here instead of ResnetV2101 you can try a different 
                 // architecture/ pre-trained model. 
-                Arch = ImageClassificationTrainer.Architecture.ResnetV2101,
-                Epoch = 50,
-                BatchSize = 10,
+                Arch = ImageClassificationTrainer.Architecture.ResnetV250,
+                Epoch = 4,
+                BatchSize = 1,
                 LearningRate = 0.01f,
                 MetricsCallback = (metrics) => Console.WriteLine(metrics),
                 ValidationSet = testDataset,
                 // Disable EarlyStopping to run to specified number of epochs.
-                EarlyStoppingCriteria =null
+                EarlyStoppingCriteria =null,
+                LearningRateScheduler = null,
+                WorkspacePath= @"C:\tmp\"
             };
 
             // Create the ImageClassification pipeline.
