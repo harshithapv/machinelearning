@@ -89,7 +89,8 @@ namespace Microsoft.ML.Vision
             ResnetV2101,
             InceptionV3,
             MobilenetV2,
-            ResnetV250
+            ResnetV250,
+            ResnetV250All
         };
 
         /// <summary>
@@ -100,7 +101,20 @@ namespace Microsoft.ML.Vision
             { Architecture.ResnetV2101, @"resnet_v2_101_299.meta" },
             { Architecture.InceptionV3, @"inception_v3.meta" },
             { Architecture.MobilenetV2, @"mobilenet_v2.meta" },
-            { Architecture.ResnetV250, @"resnet_v2_50_299.meta" }
+            { Architecture.ResnetV250, @"resnet_v2_50_299.meta" },
+            { Architecture.ResnetV250All, @"resnetTest.ckpt.meta" }
+        };
+
+        /// <summary>
+        /// Dictionary mapping model architecture to model location.
+        /// </summary>
+        internal static IReadOnlyDictionary<Architecture, string>CheckpointFileName = new Dictionary<Architecture, string>
+        {
+            { Architecture.ResnetV2101, null },
+            { Architecture.InceptionV3, null },
+            { Architecture.MobilenetV2, null },
+            { Architecture.ResnetV250, null },
+            { Architecture.ResnetV250All, @"resnetTest.ckpt" }
         };
 
         /// <summary>
@@ -112,7 +126,8 @@ namespace Microsoft.ML.Vision
             { Architecture.ResnetV2101, new Tuple<int, int, int>(299,299,3) },
             { Architecture.InceptionV3, new Tuple<int, int, int>(299,299,3) },
             { Architecture.MobilenetV2, new Tuple<int, int, int>(224,224,3) },
-            { Architecture.ResnetV250, new Tuple<int, int, int>(299,299,3) }
+            { Architecture.ResnetV250, new Tuple<int, int, int>(299,299,3) },
+            { Architecture.ResnetV250All, new Tuple<int, int, int>(299,299,3) }
         };
 
         /// <summary>
@@ -440,6 +455,18 @@ namespace Microsoft.ML.Vision
             /// </summary>
             [Argument(ArgumentType.AtMostOnce, HelpText = "A class that performs learning rate scheduling.", SortOrder = 15)]
             public LearningRateScheduler LearningRateScheduler = new ExponentialLRDecay();
+
+            /// <summary>
+            /// Boolean to specify if we train the last layer only or all layers.
+            /// </summary>
+            [Argument(ArgumentType.AtMostOnce, HelpText = "Boolean to specify if we train the last layer only or all layers.", SortOrder = 15)]
+            public bool IsTrainAllLayers = false;
+
+            /// <summary>
+            /// Variable Scopes - The list layers over which to train the model
+            /// </summary>
+            [Argument(ArgumentType.AtMostOnce, HelpText = "The list layers over which to train the model", SortOrder = 15)]
+            public string[] Layers = null;
         }
 
         /// <summary> Return the type of prediction task.</summary>
@@ -572,7 +599,7 @@ namespace Microsoft.ML.Vision
                 _bottleneckOperationName = "import/MobilenetV2/Logits/Squeeze";
                 _inputTensorName = "import/input";
             }
-            else if (arch == Architecture.ResnetV250)
+            else if (arch == Architecture.ResnetV250 || arch == Architecture.ResnetV250All)
             {
                 _bottleneckOperationName = "resnet_v2_50/SpatialSqueeze";
                 _inputTensorName = "input";
@@ -600,7 +627,7 @@ namespace Microsoft.ML.Vision
 
             // Add transfer learning layer.
             AddTransferLearningLayer(_options.LabelColumnName, _options.ScoreColumnName, _options.LearningRate,
-                _useLRScheduling, _classCount, isTrainAllLayers);
+                _useLRScheduling, _classCount, isTrainAllLayers, _options.Layers);
             if (!isTrainAllLayers)
             {
                 // Initialize the variables.
@@ -624,7 +651,7 @@ namespace Microsoft.ML.Vision
                 }
                 runner.AddOperation(variables.variables_initializer(myVars)).Run();
             }
-            
+
             // Add evaluation layer.
             (_evaluationStep, _) = AddEvaluationStep(_softMaxTensor, _labelTensor);
             _softmaxTensorName = _softMaxTensor.name;
@@ -676,14 +703,13 @@ namespace Microsoft.ML.Vision
                 Directory.CreateDirectory(_options.WorkspacePath);
             }
 
-            bool isFinetune = true;
-            InitializeTrainingGraph(trainContext.TrainingSet.Data, isFinetune);
+            InitializeTrainingGraph(trainContext.TrainingSet.Data, _options.IsTrainAllLayers);
             CheckTrainingParameters(_options);
             var validationSet = trainContext.ValidationSet?.Data ?? _options.ValidationSet;
             var imageProcessor = new ImageProcessor(_session, _jpegDataTensorName, _resizedImageTensorName);
-            if (isFinetune)
+            if (_options.IsTrainAllLayers)
             {
-                int trainingSize = DataSetSize(trainContext.TrainingSet.Data, _options.LabelColumnName);                 
+                int trainingSize = DataSetSize(trainContext.TrainingSet.Data, _options.LabelColumnName);
                 TrainAndEvaluateClassificationRetrainAllLayers(trainContext.TrainingSet.Data, validationSet, _inputTensorName,
                     _options.LabelColumnName, _options.FeatureColumnName, trainingSize, imageProcessor, _options);
             }
@@ -725,7 +751,7 @@ namespace Microsoft.ML.Vision
             _session = null;
             return new ImageClassificationModelParameters(Host, session, _classCount, _jpegDataTensorName,
                 _resizedImageTensorName, _inputTensorName, _softmaxTensorName);
-        }        
+        }
 
         private void CheckTrainingParameters(Options options)
         {
@@ -827,21 +853,6 @@ namespace Microsoft.ML.Vision
 
             var imageColumn = input.Schema[imageColumnName];
             Runner runner = new Runner(_session);
-            //test for weights
-            Console.WriteLine("CACHING STEP..........................................................");
-
-            var allVars = tf.get_collection<RefVariable>(tf.GraphKeys.GLOBAL_VARIABLES);
-            for (int i = 0; i < allVars.Count; i++)
-            {
-                if (allVars[i].name.Contains("weights"))
-                {
-                    Console.WriteLine(allVars[i].name);
-                    var varRun = _session.run(allVars[i]);
-                    Console.WriteLine(varRun.shape);
-                    Console.WriteLine(varRun.ToString());
-                    break;
-                }
-            }
             runner.AddOutputs(outputTensorName);
 
             int datasetsize = 0;
@@ -881,20 +892,7 @@ namespace Microsoft.ML.Vision
                 }
                 datasetsize = metrics.Bottleneck.Index;
             }
-            //test for weights
-            Console.WriteLine("AFTER");
-            allVars = tf.get_collection<RefVariable>(tf.GraphKeys.GLOBAL_VARIABLES);
-            for (int i = 0; i < allVars.Count; i++)
-            {
-                if (allVars[i].name.Contains("weights"))
-                {
-                    Console.WriteLine(allVars[i].name);
-                    var varRun = _session.run(allVars[i]);
-                    Console.WriteLine(varRun.shape);
-                    Console.WriteLine(varRun.ToString());
-                    break;
-                }
-            }
+
             return datasetsize;
         }
 
@@ -1337,7 +1335,7 @@ namespace Microsoft.ML.Vision
             IntPtr labelBatchPtr = labelBatchHandle.AddrOfPinnedObject();
             int labelBatchSizeInBytes = sizeof(long) * labelBatch.Length;
             var labelTensorShape = _labelTensor.TensorShape.dims.Select(x => (long)x).ToArray();
-            labelTensorShape[0] = batchSize;            
+            labelTensorShape[0] = batchSize;
 
             int batchIndex = 0;
             // getters for uimage and labels
@@ -1375,7 +1373,7 @@ namespace Microsoft.ML.Vision
                         imageTensor.CopyTo<float>(imageSpan.Slice(batchIndex * imageSize, imageSize));
                         imageTensorShape = imageTensor.TensorShape.dims.Select(x => (long)x).ToArray();
                         imageTensorShape[0] = batchSize;
-                        
+
                         labelBatch[batchIndex] = label;
                         classStatsTrain[label]++;
 
@@ -1403,12 +1401,12 @@ namespace Microsoft.ML.Vision
                                 outputTensors[0].Dispose();
                                 outputTensors[1].Dispose();
                             }
-                            
+
                             batchIndex = 0;
                         } // if batch index condition ends
                         imageTensor.Dispose();
                     }
-                        
+
                     //Process last incomplete batch
                     if (batchIndex > 0)
                     {
@@ -1423,7 +1421,7 @@ namespace Microsoft.ML.Vision
                                                 labelBatchSizeInBytes);
 
                         var outputs = ConfigureAndRun(runner, imageBatchTensor, labelBatchTensor, options.LearningRateScheduler, metrics, trainstate);
-                        
+
                         metrics.Train.BatchProcessedCount += 1;
 
                         if (options.TestOnTrainSet && statisticsCallback != null)
@@ -1495,7 +1493,7 @@ namespace Microsoft.ML.Vision
                         imageTensor.CopyTo<float>(imageSpan.Slice(batchIndex * imageSize, imageSize));
                         imageTensorShape = imageTensor.TensorShape.dims.Select(x => (long)x).ToArray();
                         imageTensorShape[0] = batchSize;
-                        
+
                         labelBatch[batchIndex] = label;
                         batchIndex += 1;
 
@@ -1564,7 +1562,7 @@ namespace Microsoft.ML.Vision
             trainSaver.save(_session, _checkpointPath);
             UpdateTransferLearningModelOnDisk(_classCount);
             TryCleanupTemporaryWorkspace();
-            
+
         }
 
         private void TryCleanupTemporaryWorkspace()
@@ -1581,10 +1579,10 @@ namespace Microsoft.ML.Vision
                 }
             }
         }
-        
+
         private (Session, Tensor, Tensor, Tensor) BuildEvaluationSession(int classCount)
         {
-            var evalGraph = LoadMetaGraph(@"C:\tmp\resnetTest.ckpt.meta");
+            var evalGraph = LoadMetaGraph(Path.Combine(_resourcePath, ModelFileName[_options.Arch]));
             var evalSess = tf.Session(graph: evalGraph);
             Tensor evaluationStep = null;
             Tensor prediction = null;
@@ -1621,7 +1619,7 @@ namespace Microsoft.ML.Vision
             tf.summary.scalar("accuracy", evaluationStep);
             return (evaluationStep, _prediction);
         }
-        
+
         private void UpdateTransferLearningModelOnDisk(int classCount)
         {
             var (sess, _, _, _) = BuildEvaluationSession(classCount);
@@ -1629,7 +1627,7 @@ namespace Microsoft.ML.Vision
             var outputGraphDef = tf.graph_util.convert_variables_to_constants(
                 sess, graph.as_graph_def(), new string[] { _softMaxTensor.name.Split(':')[0],
                     _prediction.name.Split(':')[0], _jpegData.name.Split(':')[0], _resizedImage.name.Split(':')[0] });
-            
+
             string frozenModelPath = _checkpointPath + ".pb";
             File.WriteAllBytes(_checkpointPath + ".pb", outputGraphDef.ToByteArray());
             _session.graph.Dispose();
@@ -1658,7 +1656,7 @@ namespace Microsoft.ML.Vision
 
         private (Operation, Tensor, Tensor, Tensor) AddFinalRetrainOpsAllLayers(int classCount, string labelColumn,
             string scoreColumnName, Tensor bottleneckTensor, bool isTraining, bool useLearningRateScheduler,
-            float learningRate)
+            float learningRate, string[] layers)
         {
             var bottleneckTensorDims = bottleneckTensor.TensorShape.dims;
             var (batch_size, bottleneck_tensor_size) = (bottleneckTensorDims[0], bottleneckTensorDims[1]);
@@ -1719,12 +1717,23 @@ namespace Microsoft.ML.Vision
 
             tf.summary.scalar("cross_entropy", crossEntropyMean);
             List<RefVariable> vars = tf.get_collection<RefVariable>(tf.GraphKeys.TRAINABLE_VARIABLES);
+
             List<RefVariable> myVars = new List<RefVariable>();
-            for (int i = 0; i < vars.Count; i++)
+            if (layers == null || layers.Length == 0)
             {
-                if (vars[i].name.Contains("final_retrain_ops"))
+                myVars = vars;
+            }
+            else
+            {
+                for (int i = 0; i < vars.Count; i++)
                 {
-                    myVars.Add(vars[i]);
+                    for (int j = 0; j < layers.Length; j++)
+                    {
+                        if (vars[i].name.Contains(layers[j]))
+                        {
+                            myVars.Add(vars[i]);
+                        }
+                    }
                 }
             }
 
@@ -1733,13 +1742,12 @@ namespace Microsoft.ML.Vision
                 var optimizer = useLearningRateScheduler ? tf.train.GradientDescentOptimizer(_learningRateInput) :
                                     tf.train.GradientDescentOptimizer(learningRate);
 
-                _trainStep = optimizer.minimize(crossEntropyMean, null, vars);
+                _trainStep = optimizer.minimize(crossEntropyMean, null, myVars);
             });
 
             return (_trainStep, crossEntropyMean, _labelTensor, _softMaxTensor);
         }
 
-        
         private (Operation, Tensor, Tensor, Tensor) AddFinalRetrainOps(int classCount, string labelColumn,
             string scoreColumnName, Tensor bottleneckTensor, bool isTraining, bool useLearningRateScheduler,
             float learningRate)
@@ -1817,15 +1825,15 @@ namespace Microsoft.ML.Vision
             return (_trainStep, crossEntropyMean, _labelTensor, _softMaxTensor);
         }
 
-        private void AddTransferLearningLayer(string labelColumn,
-            string scoreColumnName, float learningRate, bool useLearningRateScheduling, int classCount, bool isTrainAllLayers = false)
+        private void AddTransferLearningLayer(string labelColumn,string scoreColumnName, float learningRate, bool useLearningRateScheduling,
+            int classCount, bool isTrainAllLayers = false, string[] layers = null)
         {
             _bottleneckTensor = Graph.OperationByName(_bottleneckOperationName);
             if (isTrainAllLayers)
             {
                 (_trainStep, _crossEntropy, _labelTensor, _softMaxTensor) =
                     AddFinalRetrainOpsAllLayers(classCount, labelColumn, scoreColumnName, _bottleneckTensor, true,
-                        useLearningRateScheduling, learningRate);
+                        useLearningRateScheduling, learningRate, layers);
             }
             else
             {
@@ -1833,24 +1841,14 @@ namespace Microsoft.ML.Vision
                     AddFinalRetrainOps(classCount, labelColumn, scoreColumnName, _bottleneckTensor, true,
                         useLearningRateScheduling, learningRate);
             }
-            
-        }
-
-        private void AddFineTuningLayer(string labelColumn,
-            string scoreColumnName, float learningRate, bool useLearningRateScheduling, int classCount)
-        {
-            _bottleneckTensor = Graph.OperationByName(_bottleneckOperationName);
-            (_trainStep, _crossEntropy, _labelTensor, _softMaxTensor) =
-                    AddFinalRetrainOpsAllLayers(classCount, labelColumn, scoreColumnName, _bottleneckTensor, true,
-                        useLearningRateScheduling, learningRate);
 
         }
 
         private static TensorFlowSessionWrapper LoadTensorFlowSessionFromMetaGraph(IHostEnvironment env, Architecture arch)
         {
-            var modelFileName = ModelFileName[arch];
-            var modelFilePath = @"C:\tmp\resnetTest.ckpt.meta";//Path.Combine(_resourcePath, modelFileName);
-            var checkpointPath = @"C:\tmp\resnetTest.ckpt"; // TO DO : Make a dictionary to fetch check point file
+            //TODO fix download
+            var modelFilePath = Path.Combine(_resourcePath, ModelFileName[arch]);
+            var checkpointPath = string.IsNullOrEmpty(CheckpointFileName[arch]) ? null : Path.Combine(_resourcePath, CheckpointFileName[arch]);
             //int timeout = 10 * 60 * 1000;
             //DownloadIfNeeded(env, modelFileName, _resourcePath, modelFileName, timeout);
             return new TensorFlowSessionWrapper(GetSession(env, modelFilePath, string.IsNullOrEmpty(checkpointPath), checkpointPath), modelFilePath);

@@ -72,7 +72,7 @@ namespace Samples.Dynamic
                             fullImagesetFolderPathTest, "ImagePath"))
                 .Fit(testDataset)
                 .Transform(testDataset);
-
+            var arch = ImageClassificationTrainer.Architecture.ResnetV250All;
             // Set the options for ImageClassification.
             var options = new ImageClassificationTrainer.Options()
             {
@@ -82,8 +82,8 @@ namespace Samples.Dynamic
                 // here instead of 
                 // ResnetV2101 you can try a different architecture/
                 // pre-trained model. 
-                Arch = ImageClassificationTrainer.Architecture.ResnetV2101,
-                Epoch = 182,
+                Arch = arch,
+                Epoch = 3,
                 BatchSize = 128,
                 LearningRate = 0.01f,
                 MetricsCallback = (metrics) => Console.WriteLine(metrics),
@@ -94,7 +94,11 @@ namespace Samples.Dynamic
                 // This is known to do well for Cifar dataset and Resnet models
                 // You can also try other types of Learning rate scheduling 
                 // methods available in LearningRateScheduler.cs  
-                LearningRateScheduler = new LsrDecay()
+                LearningRateScheduler = new ExponentialLRDecay(),
+                EarlyStoppingCriteria = null,
+                WorkspacePath = @"C:\tmp\",
+                IsTrainAllLayers = arch == ImageClassificationTrainer.Architecture.ResnetV250All,
+                Layers = new string[] { "final_retrain_ops" }
             };
 
             // Create the ImageClassification pipeline.

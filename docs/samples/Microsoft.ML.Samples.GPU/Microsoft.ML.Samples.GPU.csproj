@@ -61,8 +61,4 @@
     </Content>
   </ItemGroup>
 
-    <ItemGroup>
-      <Folder Include="Dynamic\" />
-    </ItemGroup>
-
 </Project>

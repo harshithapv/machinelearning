@@ -1334,6 +1334,7 @@ namespace Microsoft.ML.Scenarios
         [InlineData(ImageClassificationTrainer.Architecture.MobilenetV2)]
         [InlineData(ImageClassificationTrainer.Architecture.ResnetV250)]
         [InlineData(ImageClassificationTrainer.Architecture.InceptionV3)]
+        [InlineData(ImageClassificationTrainer.Architecture.ResnetV250All)]
         public void TensorFlowImageClassification(ImageClassificationTrainer.Architecture arch)
         {
             string imagesDownloadFolderPath = Path.Combine(TensorFlowScenariosTestsFixture.assetsPath, "inputs",
@@ -1382,7 +1383,7 @@ namespace Microsoft.ML.Scenarios
                 // ResnetV2101 you can try a different architecture/
                 // pre-trained model. 
                 Arch = arch,
-                Epoch = 50,
+                Epoch = 5,
                 BatchSize = 10,
                 LearningRate = 0.01f,
                 MetricsCallback = (metric) => Console.WriteLine(metric),
@@ -1392,7 +1393,8 @@ namespace Microsoft.ML.Scenarios
                 ReuseValidationSetBottleneckCachedValues = isReuse,
                 TrainSetBottleneckCachedValuesFileName = trainSetBottleneckCachedValuesFileName,
                 ValidationSetBottleneckCachedValuesFileName = validationSetBottleneckCachedValuesFileName,
-                ValidationSet = validationSet
+                ValidationSet = validationSet,
+                IsTrainAllLayers = arch == ImageClassificationTrainer.Architecture.ResnetV250All
             };
 
             var pipeline = mlContext.Transforms.LoadRawImageBytes("Image", fullImagesetFolderPath, "ImagePath")
